@@ -1,0 +1,5 @@
+.vscode
+.sconsign.dblite
+*.o
+test_suite
+compile_commands.json
