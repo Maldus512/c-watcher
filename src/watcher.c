@@ -30,7 +30,8 @@
 
 #define VECTOR_GROW(name)                                                                                              \
     {                                                                                                                  \
-        typeof(name.items) new_entries = C_WATCHER_CUSTOM_MEM_REALLOC(name.items, name.capacity + 1);                  \
+        typeof(name.items) new_entries =                                                                               \
+            C_WATCHER_CUSTOM_MEM_REALLOC(name.items, (name.capacity + 1) * sizeof(name.items[0]));                     \
         if (new_entries != NULL) {                                                                                     \
             name.items = new_entries;                                                                                  \
             name.capacity++;                                                                                           \
@@ -45,7 +46,8 @@
         }                                                                                                              \
     }
 
-#define VECTOR_FULL(name) (name.num == name.capacity)
+#define VECTOR_FULL(name)            (name.num == name.capacity)
+#define VECTOR_AT_MAX_CAPACITY(name) (name.capacity == WATCHER_MAX_ENTRIES)
 
 #define NULL_INDEX 0xFFFF
 
@@ -53,6 +55,7 @@
 void watcher_init(watcher_t *watcher, void *user_ptr) {
     VECTOR_INIT(watcher->entries);
     VECTOR_INIT(watcher->callbacks);
+    VECTOR_INIT(watcher->args);
     VECTOR_INIT(watcher->delays);
     VECTOR_INIT(watcher->timestamps);
     watcher->user_ptr = user_ptr;
@@ -61,11 +64,12 @@ void watcher_init(watcher_t *watcher, void *user_ptr) {
 
 
 void watcher_init_static(watcher_t *watcher, watcher_entry_t *entries, uint16_t entries_capacity,
-                         watcher_callback_t *callbacks, uint16_t callbacks_capacity, unsigned long *delays,
-                         uint16_t delays_capacity, unsigned long *timestamps, uint16_t timestamps_capacity,
-                         void *user_ptr) {
+                         watcher_callback_t *callbacks, uint16_t callbacks_capacity, void **args,
+                         uint16_t args_capacity, unsigned long *delays, uint16_t delays_capacity,
+                         unsigned long *timestamps, uint16_t timestamps_capacity, void *user_ptr) {
     VECTOR_INIT_STATIC(watcher->entries, entries, entries_capacity);
     VECTOR_INIT_STATIC(watcher->callbacks, callbacks, callbacks_capacity);
+    VECTOR_INIT_STATIC(watcher->args, args, args_capacity);
     VECTOR_INIT_STATIC(watcher->delays, delays, delays_capacity);
     VECTOR_INIT_STATIC(watcher->timestamps, timestamps, timestamps_capacity);
     watcher->user_ptr = user_ptr;
@@ -76,11 +80,14 @@ void watcher_init_static(watcher_t *watcher, watcher_entry_t *entries, uint16_t 
 void watcher_destroy(watcher_t *watcher) {
     C_WATCHER_CUSTOM_MEM_FREE(watcher->entries.items);
     C_WATCHER_CUSTOM_MEM_FREE(watcher->callbacks.items);
+    C_WATCHER_CUSTOM_MEM_FREE(watcher->args.items);
     C_WATCHER_CUSTOM_MEM_FREE(watcher->delays.items);
+    C_WATCHER_CUSTOM_MEM_FREE(watcher->timestamps.items);
 }
 
 
-int16_t watcher_add_entry(watcher_t *watcher, void *pointer, uint16_t size, watcher_callback_t callback, void *arg) {
+int16_t watcher_add_entry(watcher_t *watcher, const void *pointer, uint16_t size, watcher_callback_t callback,
+                          void *arg) {
     void *old_buffer = C_WATCHER_CUSTOM_MEM_REALLOC(NULL, size);
     if (old_buffer == NULL) {
         return -1;
@@ -89,12 +96,22 @@ int16_t watcher_add_entry(watcher_t *watcher, void *pointer, uint16_t size, watc
     }
 }
 
+int16_t watcher_add_entry_delayed(watcher_t *watcher, const void *pointer, uint16_t size, watcher_callback_t callback,
+                                  void *arg, unsigned long delay) {
+    void *old_buffer = C_WATCHER_CUSTOM_MEM_REALLOC(NULL, size);
+    if (old_buffer == NULL) {
+        return -1;
+    } else {
+        return watcher_add_entry_delayed_static(watcher, pointer, size, callback, arg, delay, old_buffer);
+    }
+}
 
-int16_t watcher_add_entry_static(watcher_t *watcher, void *pointer, uint16_t size, watcher_callback_t callback,
+
+int16_t watcher_add_entry_static(watcher_t *watcher, const void *pointer, uint16_t size, watcher_callback_t callback,
                                  void *arg, void *old_buffer) {
 #define GROW_OR_FAIL(field)                                                                                            \
     if (VECTOR_FULL(watcher->field)) {                                                                                 \
-        if (watcher->growable) {                                                                                       \
+        if (watcher->growable && !VECTOR_AT_MAX_CAPACITY(watcher->field)) {                                            \
             VECTOR_GROW(watcher->field);                                                                               \
         } else {                                                                                                       \
             return -1;                                                                                                 \
@@ -138,6 +155,7 @@ int16_t watcher_add_entry_static(watcher_t *watcher, void *pointer, uint16_t siz
         }
     }
 
+    memcpy(old_buffer, pointer, size);
     watcher_entry_t entry = {
         .memory          = pointer,
         .old_buffer      = old_buffer,
@@ -157,10 +175,19 @@ int16_t watcher_add_entry_static(watcher_t *watcher, void *pointer, uint16_t siz
 }
 
 
+int16_t watcher_add_entry_delayed_static(watcher_t *watcher, const void *pointer, uint16_t size,
+                                         watcher_callback_t callback, void *arg, unsigned long delay,
+                                         void *old_buffer) {
+    int16_t entry_index = watcher_add_entry_static(watcher, pointer, size, callback, arg, old_buffer);
+    watcher_set_delayed(watcher, entry_index, delay);
+    return entry_index;
+}
+
+
 int16_t watcher_set_delayed(watcher_t *watcher, int16_t entry_index, unsigned long delay) {
 #define GROW_OR_FAIL(field)                                                                                            \
     if (VECTOR_FULL(watcher->field)) {                                                                                 \
-        if (watcher->growable) {                                                                                       \
+        if (watcher->growable && !VECTOR_AT_MAX_CAPACITY(watcher->field)) {                                            \
             VECTOR_GROW(watcher->field);                                                                               \
         } else {                                                                                                       \
             return -1;                                                                                                 \
@@ -173,7 +200,7 @@ int16_t watcher_set_delayed(watcher_t *watcher, int16_t entry_index, unsigned lo
     }
 
     // Entry is already delayed
-    if (watcher->entries.items[entry_index].delay_index == NULL_INDEX) {
+    if (watcher->entries.items[entry_index].delay_index != NULL_INDEX) {
         return entry_index;
     }
 
@@ -190,7 +217,7 @@ int16_t watcher_set_delayed(watcher_t *watcher, int16_t entry_index, unsigned lo
 
     if (!delay_found) {
         if (VECTOR_FULL(watcher->delays)) {
-            if (watcher->growable) {
+            if (watcher->growable && !VECTOR_AT_MAX_CAPACITY(watcher->delays)) {
                 VECTOR_GROW(watcher->delays);
             } else {
                 return -1;
@@ -259,7 +286,8 @@ void watcher_trigger_entry(watcher_t *watcher, int16_t entry_index) {
         arg = watcher->args.items[entry->arg_index];
     }
 
-    watcher->callbacks.items[entry->callback_index](entry->old_buffer, entry->memory, watcher->user_ptr, arg);
+    watcher->callbacks.items[entry->callback_index](entry->old_buffer, entry->memory, entry->size, watcher->user_ptr,
+                                                    arg);
     memcpy(entry->old_buffer, entry->memory, entry->size);
     entry->timestamp_triggered = 0;
 }
