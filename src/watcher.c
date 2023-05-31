@@ -328,3 +328,32 @@ static int add_arg(watcher_t *watcher, void *arg, uint16_t *arg_index) {
 
     return 0;
 }
+
+int16_t watcher_get_entry_index(watcher_t *watcher, const void *pointer, uint16_t size) {
+    uint16_t i = 0;
+    for (i = 0; i < watcheWr->entries.num; i++) {
+        watcher_entry_t *entry = &watcher->entries.items[i];
+
+        if (entry->memory == pointer && entry->size == size) {
+            return i;
+        }
+    }
+
+    // no entry found
+    return -1;
+}
+
+void watcher_trigger_entry_silently(watcher_t *watcher, int16_t entry_index) {
+    // Invalid index
+    if (entry_index >= watcher->entries.num || entry_index < 0) {
+        return;
+    }
+    watcher_entry_t *entry = &watcher->entries.items[entry_index];
+
+    memcpy(entry->old_buffer, entry->memory, entry->size);
+
+    if (entry->debounce_index != NULL_INDEX) {
+        debounce_data_t *pdebounce = &watcher->debounces.items[entry->debounce_index];
+        pdebounce->triggered       = 0;
+    }
+}
