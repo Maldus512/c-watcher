@@ -232,4 +232,21 @@ void watcher_trigger_entry(watcher_t *watcher, int16_t entry_index);
  */
 void watcher_trigger_all(watcher_t *watcher);
 
+/**
+ * @brief Get the index of an entry by the watched object pointer and its size
+ * 
+ * @param watcher
+ * @param pointer
+ * @param size
+ */
+int16_t watcher_get_entry_index(watcher_t *watcher, const void *pointer, uint16_t size);
+
+/**
+ * @brief Trigger an entry without invoking its callback
+ * 
+ * @param watcher 
+ * @param entry_index 
+ */
+void watcher_trigger_entry_silently(watcher_t *watcher, int16_t entry_index);
+
 #endif
