@@ -331,7 +331,7 @@ static int add_arg(watcher_t *watcher, void *arg, uint16_t *arg_index) {
 
 int16_t watcher_get_entry_index(watcher_t *watcher, const void *pointer, uint16_t size) {
     uint16_t i = 0;
-    for (i = 0; i < watcheWr->entries.num; i++) {
+    for (i = 0; i < watcher->entries.num; i++) {
         watcher_entry_t *entry = &watcher->entries.items[i];
 
         if (entry->memory == pointer && entry->size == size) {
