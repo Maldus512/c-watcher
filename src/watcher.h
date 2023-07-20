@@ -83,19 +83,20 @@ typedef struct __attribute__((packed)) {
 
     uint16_t callback_index;     // Index for the callback vector
     uint16_t arg_index;          // Index for the argument vector
-
-    // TODO: reduce the number of indexes here (use the timestamp index as main index and add an indirection there for
-    // the delay index) This will not save RAM when using delays but will spare 2 bytes from each non-delayed watcher
-    uint16_t delay_index;                 // Index for the delay vector
-    uint16_t timestamp_index : 15;        // Index for the timestamp vector
-    uint16_t timestamp_triggered : 1;     // Whether a change was triggered and the timer is counting
+    uint16_t debounce_index;     // Index for the argument vector
 } watcher_entry_t;
+
+typedef struct __attribute__((packed)) {
+    unsigned long timestamp;
+    uint16_t      delay_index;
+    uint8_t       triggered;
+} debounce_data_t;
 
 // Watcher data
 typedef struct {
     WATCHER_VECTOR_DEFINE(watcher_entry_t, entries);
     WATCHER_VECTOR_DEFINE(unsigned long, delays);
-    WATCHER_VECTOR_DEFINE(unsigned long, timestamps);
+    WATCHER_VECTOR_DEFINE(debounce_data_t, debounces);
     WATCHER_VECTOR_DEFINE(watcher_callback_t, callbacks);
     WATCHER_VECTOR_DEFINE(void *, args);
 
@@ -110,7 +111,7 @@ typedef struct {
  * @param watcher
  * @param user_ptr user pointer that will be provided to the entries' callbacks
  */
-void watcher_init(watcher_t *watcher, void *user_ptr);
+int watcher_init(watcher_t *watcher, void *user_ptr);
 
 /**
  * @brief Initialize a watcher structure, providing static memory for allocation.
@@ -129,10 +130,10 @@ void watcher_init(watcher_t *watcher, void *user_ptr);
  * @param timestamps_capacity
  * @param user_ptr user pointer that will be provided to the entries' callbacks
  */
-void watcher_init_static(watcher_t *watcher, watcher_entry_t *entries, uint16_t entries_capacity,
-                         watcher_callback_t *callbacks, uint16_t callbacks_capacity, void **args,
-                         uint16_t args_capacity, unsigned long *delays, uint16_t delays_capacity,
-                         unsigned long *timestamps, uint16_t timestamps_capacity, void *user_ptr);
+int watcher_init_static(watcher_t *watcher, watcher_entry_t *entries, uint16_t entries_capacity,
+                        watcher_callback_t *callbacks, uint16_t callbacks_capacity, void **args, uint16_t args_capacity,
+                        unsigned long *delays, uint16_t delays_capacity, debounce_data_t *debounces,
+                        uint16_t debounces_capacity, void *user_ptr);
 
 /**
  * @brief Frees the allocated memory for a buffer (if it was not statically allocated)
@@ -230,5 +231,22 @@ void watcher_trigger_entry(watcher_t *watcher, int16_t entry_index);
  * @param watcher
  */
 void watcher_trigger_all(watcher_t *watcher);
+
+/**
+ * @brief Get the index of an entry by the watched object pointer and its size
+ * 
+ * @param watcher
+ * @param pointer
+ * @param size
+ */
+int16_t watcher_get_entry_index(watcher_t *watcher, const void *pointer, uint16_t size);
+
+/**
+ * @brief Trigger an entry without invoking its callback
+ * 
+ * @param watcher 
+ * @param entry_index 
+ */
+void watcher_trigger_entry_silently(watcher_t *watcher, int16_t entry_index);
 
 #endif

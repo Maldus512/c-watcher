@@ -22,7 +22,7 @@ static int   cbtest       = 0;
 static void *entries_arg  = (void *)0x1234;
 static void *user_pointer = (void *)0xDEADBEEF;
 
-static void callback(void *old_value, const void *memory, size_t size, void *user_ptr, void *arg) {
+static void callback(void *old_value, const void *memory, uint16_t size, void *user_ptr, void *arg) {
     (void)old_value;
     (void)memory;
     (void)size;
