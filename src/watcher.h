@@ -25,7 +25,7 @@
  * @return int16_t entry index if successful, -1 on failure
  */
 #define WATCHER_ADD_ARRAY_ENTRY(watcher, ptr, num, cb, arg)                                                            \
-    watcher_add_entry(watcher, ptr, sizeof(*(ptr)) * (num), cb, arg)
+    watcher_add_entry(watcher, ptr, sizeof(*(ptr)) * (num), cb, ((void *)(arg)))
 
 /**
  * @brief Add a new entry to the watcher
@@ -67,7 +67,7 @@
 
 /**
  * @brief Callback typedef
- * 
+ *
  * @param old_value old value of the memory
  * @param memory current pointer
  * @param size size of the data type
@@ -151,8 +151,8 @@ void watcher_destroy(watcher_t *watcher);
  * @param arg additional argument to be passed to the function
  * @return int16_t entry index if successful, -1 on failure
  */
-int16_t  watcher_add_entry(watcher_t *watcher, const void *pointer, uint16_t size, watcher_callback_t callback,
-                           void *arg);
+int16_t watcher_add_entry(watcher_t *watcher, const void *pointer, uint16_t size, watcher_callback_t callback,
+                          void *arg);
 
 /**
  * @brief Adds a new (delayed) entry to the watched vector, allocating the memory dinamically.
@@ -165,8 +165,8 @@ int16_t  watcher_add_entry(watcher_t *watcher, const void *pointer, uint16_t siz
  * @param delay delay in ticks
  * @return int16_t entry index if successful, -1 on failure
  */
-int16_t  watcher_add_entry_delayed(watcher_t *watcher, const void *pointer, uint16_t size, watcher_callback_t callback,
-                                   void *arg, unsigned long delay);
+int16_t watcher_add_entry_delayed(watcher_t *watcher, const void *pointer, uint16_t size, watcher_callback_t callback,
+                                  void *arg, unsigned long delay);
 
 /**
  * @brief Adds a new entry to the watched vector, with pre allocated memory for the old value buffer
@@ -179,8 +179,8 @@ int16_t  watcher_add_entry_delayed(watcher_t *watcher, const void *pointer, uint
  * @param old_buffer pre allocated memory (of corresponding size)
  * @return int16_t entry index if successful, -1 on failure
  */
-int16_t  watcher_add_entry_static(watcher_t *watcher, const void *pointer, uint16_t size, watcher_callback_t callback,
-                                  void *arg, void *old_buffer);
+int16_t watcher_add_entry_static(watcher_t *watcher, const void *pointer, uint16_t size, watcher_callback_t callback,
+                                 void *arg, void *old_buffer);
 
 /**
  * @brief Adds a new (delayed) entry to the watched vector, with pre allocated memory for the old value buffer
@@ -194,23 +194,23 @@ int16_t  watcher_add_entry_static(watcher_t *watcher, const void *pointer, uint1
  * @param old_buffer pre allocated memory (of corresponding size)
  * @return int16_t entry index if successful, -1 on failure
  */
-int16_t  watcher_add_entry_delayed_static(watcher_t *watcher, const void *pointer, uint16_t size,
-                                          watcher_callback_t callback, void *arg, unsigned long delay, void *old_buffer);
+int16_t watcher_add_entry_delayed_static(watcher_t *watcher, const void *pointer, uint16_t size,
+                                         watcher_callback_t callback, void *arg, unsigned long delay, void *old_buffer);
 
 /**
  * @brief Mark an entry as delayed
- * 
- * @param watcher 
- * @param entry_index 
- * @param delay 
+ *
+ * @param watcher
+ * @param entry_index
+ * @param delay
  * @return int16_t entry index if successful, -1 on failure
  */
-int16_t  watcher_set_delayed(watcher_t *watcher, int16_t entry_index, unsigned long delay);
+int16_t watcher_set_delayed(watcher_t *watcher, int16_t entry_index, unsigned long delay);
 
 /**
  * @brief Run the observer engine
- * 
- * @param watcher 
+ *
+ * @param watcher
  * @param timestamp current time
  * @return uint16_t number of entries which had their callback invoked
  */
@@ -218,17 +218,17 @@ uint16_t watcher_watch(watcher_t *watcher, unsigned long timestamp);
 
 /**
  * @brief Trigger an entry, invoking its callback
- * 
- * @param watcher 
- * @param entry_index 
+ *
+ * @param watcher
+ * @param entry_index
  */
-void     watcher_trigger_entry(watcher_t *watcher, int16_t entry_index);
+void watcher_trigger_entry(watcher_t *watcher, int16_t entry_index);
 
 /**
  * @brief Trigger all entries
- * 
- * @param watcher 
+ *
+ * @param watcher
  */
-void     watcher_trigger_all(watcher_t *watcher);
+void watcher_trigger_all(watcher_t *watcher);
 
 #endif

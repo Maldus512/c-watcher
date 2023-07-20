@@ -3,3 +3,4 @@
 *.o
 test_suite
 compile_commands.json
+build
