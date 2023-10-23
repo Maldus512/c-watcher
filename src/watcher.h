@@ -5,6 +5,7 @@
 #include <stdlib.h>
 
 // Type of entry indexes
+// TODO: use extensive checks to allow for even smaller indexes
 #ifndef C_WATCHER_SIZE_TYPE
 #define C_WATCHER_SIZE_TYPE uint16_t
 #endif
@@ -91,6 +92,15 @@ typedef C_WATCHER_SIZE_TYPE watcher_size_t;
 typedef void (*watcher_callback_t)(void *old_value, const void *new_value, watcher_size_t size, void *user_ptr,
                                    void *arg);
 
+
+typedef enum {
+    WATCHER_RESULT_OK = 0,
+    WATCHER_RESULT_INVALID_ARGS,
+    WATCHER_RESULT_ALLOC_ERROR,
+    WATCHER_RESULT_STATIC_OVERFLOW,
+} watcher_result_t;
+
+
 // TODO: consider whether the vector index optimization is appropriate for the callback's argument
 typedef struct __attribute__((packed)) {
     const void    *watched;        // Memory pointer
@@ -99,20 +109,23 @@ typedef struct __attribute__((packed)) {
 
     watcher_size_t callback_index;     // Index for the callback vector
     watcher_size_t arg_index;          // Index for the argument vector
-    watcher_size_t debounce_index;     // Index for the argument vector
+    watcher_size_t debounce_index;     // Index for the debounce vector
 } watcher_entry_t;
+
 
 typedef struct __attribute__((packed)) {
     unsigned long  timestamp;
     watcher_size_t delay_index;
+    watcher_size_t callback_index;
     uint8_t        triggered;
-} debounce_data_t;
+} watcher_debounce_data_t;
+
 
 // Watcher data
 typedef struct {
     VECTOR_DEFINE(watcher_entry_t, entries);
     VECTOR_DEFINE(unsigned long, delays);
-    VECTOR_DEFINE(debounce_data_t, debounces);
+    VECTOR_DEFINE(watcher_debounce_data_t, debounces);
     VECTOR_DEFINE(watcher_callback_t, callbacks);
     VECTOR_DEFINE(void *, args);
 
@@ -130,7 +143,8 @@ typedef struct {
  * @param watcher
  * @param user_ptr user pointer that will be provided to the entries' callbacks
  */
-int watcher_init(watcher_t *watcher, void *user_ptr, void *(*fn_realloc)(void *, size_t), void (*fn_free)(void *));
+watcher_result_t watcher_init(watcher_t *watcher, void *user_ptr, void *(*fn_realloc)(void *, size_t),
+                              void (*fn_free)(void *));
 
 /**
  * @brief Initialize a watcher structure, providing static memory for allocation.
@@ -155,13 +169,14 @@ int watcher_init(watcher_t *watcher, void *user_ptr, void *(*fn_realloc)(void *,
 void watcher_init_static(watcher_t *watcher, watcher_entry_t *entries, watcher_size_t entries_capacity,
                          watcher_callback_t *callbacks, watcher_size_t callbacks_capacity, void **args,
                          watcher_size_t args_capacity, unsigned long *delays, watcher_size_t delays_capacity,
-                         debounce_data_t *debounces, watcher_size_t debounces_capacity, void *user_ptr);
+                         watcher_debounce_data_t *debounces, watcher_size_t debounces_capacity, void *user_ptr);
 
 /**
  * @brief Frees the allocated memory for a buffer (if it was not statically allocated)
  *
  * @param watcher
  */
+// TODO: add a "clear" function that doesn't deallocate memory
 void watcher_destroy(watcher_t *watcher);
 
 /**
@@ -174,8 +189,8 @@ void watcher_destroy(watcher_t *watcher);
  * @param arg additional argument to be passed to the function
  * @return int16_t entry index if successful, -1 on failure
  */
-int16_t watcher_add_entry(watcher_t *watcher, const void *pointer, watcher_size_t size, watcher_callback_t callback,
-                          void *arg);
+watcher_result_t watcher_add_entry(watcher_t *watcher, const void *pointer, watcher_size_t size,
+                                   watcher_callback_t callback, void *arg);
 
 /**
  * @brief Adds a new (delayed) entry to the watched vector, allocating the memory dinamically.
@@ -188,8 +203,8 @@ int16_t watcher_add_entry(watcher_t *watcher, const void *pointer, watcher_size_
  * @param delay delay in ticks
  * @return int16_t entry index if successful, -1 on failure
  */
-int16_t watcher_add_entry_delayed(watcher_t *watcher, const void *pointer, watcher_size_t size,
-                                  watcher_callback_t callback, void *arg, unsigned long delay);
+watcher_result_t watcher_add_entry_delayed(watcher_t *watcher, const void *pointer, watcher_size_t size,
+                                           watcher_callback_t callback, void *arg, unsigned long delay);
 
 /**
  * @brief Adds a new entry to the watched vector, with pre allocated memory for the old value buffer
@@ -202,8 +217,8 @@ int16_t watcher_add_entry_delayed(watcher_t *watcher, const void *pointer, watch
  * @param old_buffer pre allocated memory (of corresponding size)
  * @return int16_t entry index if successful, -1 on failure
  */
-int16_t watcher_add_entry_static(watcher_t *watcher, const void *pointer, watcher_size_t size,
-                                 watcher_callback_t callback, void *arg, void *old_buffer);
+watcher_result_t watcher_add_entry_static(watcher_t *watcher, const void *pointer, watcher_size_t size,
+                                          watcher_callback_t callback, void *arg, void *old_buffer);
 
 /**
  * @brief Adds a new (delayed) entry to the watched vector, with pre allocated memory for the old value buffer
@@ -217,18 +232,10 @@ int16_t watcher_add_entry_static(watcher_t *watcher, const void *pointer, watche
  * @param old_buffer pre allocated memory (of corresponding size)
  * @return int16_t entry index if successful, -1 on failure
  */
-int16_t watcher_add_entry_delayed_static(watcher_t *watcher, const void *pointer, watcher_size_t size,
-                                         watcher_callback_t callback, void *arg, unsigned long delay, void *old_buffer);
+watcher_result_t watcher_add_entry_delayed_static(watcher_t *watcher, const void *pointer, watcher_size_t size,
+                                                  watcher_callback_t callback, void *arg, unsigned long delay,
+                                                  void *old_buffer);
 
-/**
- * @brief Mark an entry as delayed
- *
- * @param watcher
- * @param entry_index
- * @param delay
- * @return int16_t entry index if successful, -1 on failure
- */
-int16_t watcher_set_delayed(watcher_t *watcher, int16_t entry_index, unsigned long delay);
 
 /**
  * @brief Run the observer engine
@@ -254,14 +261,6 @@ void watcher_trigger_entry(watcher_t *watcher, int16_t entry_index);
  */
 void watcher_trigger_all(watcher_t *watcher);
 
-/**
- * @brief Get the index of an entry by the watched object pointer and its size
- *
- * @param watcher
- * @param pointer
- * @param size
- */
-int16_t watcher_get_entry_index(watcher_t *watcher, const void *pointer, watcher_size_t size);
 
 /**
  * @brief Trigger an entry without invoking its callback
