@@ -48,15 +48,21 @@
 #define FITS_IN_POINTER(size)           ((size) < sizeof(void *))
 #define ENTRY_GET_OLD_BUFFER_POINTER(e) (FITS_IN_POINTER((e).size) ? &(e).old_buffer : (e).old_buffer)
 
-// TODO: there is no need for the null index
-#define NULL_INDEX ((watcher_size_t)-1)
+
+typedef enum {
+    TRIGGER_STATE_INACTIVE = 0,
+    TRIGGER_STATE_ACTIVE,
+    TRIGGER_STATE_RESET,
+} trigger_state_t;
 
 
 static watcher_result_t add_callback(watcher_t *watcher, watcher_callback_t callback, watcher_size_t *callback_index);
 static watcher_result_t add_arg(watcher_t *watcher, void *arg, watcher_size_t *arg_index);
-static watcher_result_t _add_entry_static(watcher_t *watcher, const void *pointer, watcher_size_t size,
-                                          watcher_callback_t callback, void *arg, void *old_buffer,
-                                          unsigned long delay);
+static watcher_result_t add_entry_static(watcher_t *watcher, const void *pointer, watcher_size_t size,
+                                         watcher_callback_t callback, void *arg, void *old_buffer, unsigned long delay);
+static void debouncer_callback(void *old_value, const void *new_value, watcher_size_t size, void *user_ptr, void *arg);
+static uint8_t is_debounced(watcher_t *watcher, watcher_size_t entry_index);
+static void    trigger_debouncer_entry(watcher_t *watcher, watcher_size_t entry_index);
 
 
 watcher_result_t watcher_init(watcher_t *watcher, void *user_ptr, void *(*fn_realloc)(void *, size_t),
@@ -72,7 +78,7 @@ watcher_result_t watcher_init(watcher_t *watcher, void *user_ptr, void *(*fn_rea
     VECTOR_INIT(watcher->callbacks);
     VECTOR_INIT(watcher->args);
     VECTOR_INIT(watcher->delays);
-    VECTOR_INIT(watcher->debounces);
+    VECTOR_INIT(watcher->debouncers);
 
     watcher->user_ptr = user_ptr;
 
@@ -83,12 +89,12 @@ watcher_result_t watcher_init(watcher_t *watcher, void *user_ptr, void *(*fn_rea
 void watcher_init_static(watcher_t *watcher, watcher_entry_t *entries, watcher_size_t entries_capacity,
                          watcher_callback_t *callbacks, watcher_size_t callbacks_capacity, void **args,
                          watcher_size_t args_capacity, unsigned long *delays, watcher_size_t delays_capacity,
-                         watcher_debounce_data_t *debounces, watcher_size_t debounces_capacity, void *user_ptr) {
+                         watcher_debouncer_t *debouncers, watcher_size_t debouncers_capacity, void *user_ptr) {
     VECTOR_INIT_STATIC(watcher->entries, entries, entries_capacity);
     VECTOR_INIT_STATIC(watcher->callbacks, callbacks, callbacks_capacity);
     VECTOR_INIT_STATIC(watcher->args, args, args_capacity);
     VECTOR_INIT_STATIC(watcher->delays, delays, delays_capacity);
-    VECTOR_INIT_STATIC(watcher->debounces, debounces, debounces_capacity);
+    VECTOR_INIT_STATIC(watcher->debouncers, debouncers, debouncers_capacity);
 
     watcher->user_ptr   = user_ptr;
     watcher->fn_realloc = NULL;
@@ -102,7 +108,7 @@ void watcher_destroy(watcher_t *watcher) {
         watcher->fn_free(watcher->callbacks.items);
         watcher->fn_free(watcher->args.items);
         watcher->fn_free(watcher->delays.items);
-        watcher->fn_free(watcher->debounces.items);
+        watcher->fn_free(watcher->debouncers.items);
     }
 }
 
@@ -118,7 +124,7 @@ watcher_result_t watcher_add_entry(watcher_t *watcher, const void *pointer, watc
             return WATCHER_RESULT_ALLOC_ERROR;
         }
     }
-    return _add_entry_static(watcher, pointer, size, callback, arg, old_buffer, 0);
+    return add_entry_static(watcher, pointer, size, callback, arg, old_buffer, 0);
 }
 
 watcher_result_t watcher_add_entry_delayed(watcher_t *watcher, const void *pointer, watcher_size_t size,
@@ -139,7 +145,7 @@ watcher_result_t watcher_add_entry_delayed(watcher_t *watcher, const void *point
 watcher_result_t watcher_add_entry_delayed_static(watcher_t *watcher, const void *pointer, watcher_size_t size,
                                                   watcher_callback_t callback, void *arg, unsigned long delay,
                                                   void *old_buffer) {
-    return _add_entry_static(watcher, pointer, size, callback, arg, old_buffer, delay);
+    return add_entry_static(watcher, pointer, size, callback, arg, old_buffer, delay);
 }
 
 
@@ -148,32 +154,32 @@ watcher_size_t watcher_watch(watcher_t *watcher, unsigned long timestamp) {
     watcher_size_t i     = 0;
 
     for (i = 0; i < watcher->entries.num; i++) {
-        watcher_entry_t *entry      = &watcher->entries.items[i];
-        void            *old_buffer = ENTRY_GET_OLD_BUFFER_POINTER(*entry);
+        watcher_entry_t *pentry     = &watcher->entries.items[i];
+        void            *old_buffer = ENTRY_GET_OLD_BUFFER_POINTER(*pentry);
 
-        if (entry->debounce_index != NULL_INDEX) {
-            // Delayed logic
-            watcher_debounce_data_t *pdebounce = &watcher->debounces.items[entry->debounce_index];
-
-            if (pdebounce->triggered) {
-                // Debounce was triggered but there is a new change: reset the counter
-                if (memcmp(entry->watched, old_buffer, entry->size)) {
-                    pdebounce->timestamp = timestamp;
-                    memcpy(old_buffer, entry->watched, entry->size);
-                }
-
-                if (is_expired(pdebounce->timestamp, timestamp, watcher->delays.items[pdebounce->delay_index])) {
-                    watcher_trigger_entry(watcher, i);
-                    count++;
-                }
-            } else if (memcmp(entry->watched, old_buffer, entry->size)) {
-                pdebounce->triggered = 1;
-                pdebounce->timestamp = timestamp;
-                memcpy(old_buffer, entry->watched, entry->size);
-            }
-        } else if (memcmp(entry->watched, old_buffer, entry->size)) {
+        if (memcmp(pentry->watched, old_buffer, pentry->size)) {
             // Immediate logic
             watcher_trigger_entry(watcher, i);
+
+            // A debounced entry is considered triggered after the delay
+            if (!is_debounced(watcher, i)) {
+                count++;
+            }
+        }
+    }
+
+    for (i = 0; i < watcher->debouncers.num; i++) {
+        // Debounced logic
+        watcher_debouncer_t *pdebouncer = &watcher->debouncers.items[i];
+
+        if (pdebouncer->triggered == TRIGGER_STATE_RESET) {
+            pdebouncer->triggered = TRIGGER_STATE_ACTIVE;
+            pdebouncer->timestamp = timestamp;
+        }
+
+        if (pdebouncer->triggered == TRIGGER_STATE_ACTIVE &&
+            is_expired(pdebouncer->timestamp, timestamp, watcher->delays.items[pdebouncer->delay_index])) {
+            trigger_debouncer_entry(watcher, i);
             count++;
         }
     }
@@ -190,19 +196,10 @@ void watcher_trigger_entry(watcher_t *watcher, int16_t entry_index) {
     watcher_entry_t *entry      = &watcher->entries.items[entry_index];
     void            *old_buffer = ENTRY_GET_OLD_BUFFER_POINTER(*entry);
 
-    void *arg = NULL;
-
-    if (entry->arg_index != NULL_INDEX) {
-        arg = watcher->args.items[entry->arg_index];
-    }
+    void *arg = watcher->args.items[entry->arg_index];
 
     watcher->callbacks.items[entry->callback_index](old_buffer, entry->watched, entry->size, watcher->user_ptr, arg);
     memcpy(old_buffer, entry->watched, entry->size);
-
-    if (entry->debounce_index != NULL_INDEX) {
-        watcher_debounce_data_t *pdebounce = &watcher->debounces.items[entry->debounce_index];
-        pdebounce->triggered               = 0;
-    }
 }
 
 
@@ -237,58 +234,38 @@ static watcher_result_t add_callback(watcher_t *watcher, watcher_callback_t call
 
 static watcher_result_t add_arg(watcher_t *watcher, void *arg, watcher_size_t *arg_index) {
     watcher_size_t i = 0;
-    *arg_index       = NULL_INDEX;
 
-    if (arg != NULL) {
-        uint8_t arg_found = 0;
-        for (i = 0; i < watcher->args.num; i++) {
-            if (watcher->args.items[i] == arg) {
-                arg_found  = 1;
-                *arg_index = i;
-                break;
-            }
+    uint8_t arg_found = 0;
+    for (i = 0; i < watcher->args.num; i++) {
+        if (watcher->args.items[i] == arg) {
+            arg_found  = 1;
+            *arg_index = i;
+            break;
         }
+    }
 
-        if (!arg_found) {
-            GROW_OR_FAIL(args);
-            *arg_index = watcher->args.num;
-            VECTOR_APPEND(watcher->args, arg);
-        }
+    if (!arg_found) {
+        GROW_OR_FAIL(args);
+        *arg_index = watcher->args.num;
+        VECTOR_APPEND(watcher->args, arg);
     }
 
     return WATCHER_RESULT_OK;
 }
 
 
-void watcher_trigger_entry_silently(watcher_t *watcher, int16_t entry_index) {
-    // Invalid index
-    if (entry_index >= watcher->entries.num || entry_index < 0) {
-        return;
-    }
-    watcher_entry_t *entry      = &watcher->entries.items[entry_index];
-    void            *old_buffer = ENTRY_GET_OLD_BUFFER_POINTER(*entry);
-
-    memcpy(old_buffer, entry->watched, entry->size);
-
-    if (entry->debounce_index != NULL_INDEX) {
-        watcher_debounce_data_t *pdebounce = &watcher->debounces.items[entry->debounce_index];
-        pdebounce->triggered               = 0;
-    }
-}
-
-
-static watcher_result_t _add_entry_static(watcher_t *watcher, const void *pointer, watcher_size_t size,
-                                          watcher_callback_t callback, void *arg, void *old_buffer,
-                                          unsigned long delay) {
+static watcher_result_t add_entry_static(watcher_t *watcher, const void *pointer, watcher_size_t size,
+                                         watcher_callback_t callback, void *arg, void *old_buffer,
+                                         unsigned long delay) {
     GROW_OR_FAIL(entries);
 
-    watcher_size_t   callback_index = NULL_INDEX;
+    watcher_size_t   callback_index = 0;
     watcher_result_t result         = WATCHER_RESULT_OK;
     if ((result = add_callback(watcher, callback, &callback_index)) != WATCHER_RESULT_OK) {
         return result;
     }
 
-    watcher_size_t arg_index = NULL_INDEX;
+    watcher_size_t arg_index = 0;
     if ((result = add_arg(watcher, arg, &arg_index)) != WATCHER_RESULT_OK) {
         return result;
     }
@@ -299,7 +276,6 @@ static watcher_result_t _add_entry_static(watcher_t *watcher, const void *pointe
         .size           = size,
         .callback_index = callback_index,
         .arg_index      = arg_index,
-        .debounce_index = NULL_INDEX,
     };
     // If the watched region fits in a pointer just use the corresponding field
     old_buffer = ENTRY_GET_OLD_BUFFER_POINTER(entry);
@@ -313,12 +289,14 @@ static watcher_result_t _add_entry_static(watcher_t *watcher, const void *pointe
     VECTOR_APPEND(watcher->entries, entry);
 
     if (delay > 0) {
-        // Entry is already delayed
-        if (watcher->entries.items[entry_index].debounce_index != NULL_INDEX) {
+        watcher_entry_t *pentry = &watcher->entries.items[entry_index];
+
+        // Entry is already debounced
+        if (is_debounced(watcher, entry_index)) {
             return entry_index;
         }
 
-        // Look for or add a new delay tracker
+        // Look for or add a new debouncer
         watcher_size_t i           = 0;
         uint8_t        delay_found = 0;
         int16_t        delay_index = 0;
@@ -343,17 +321,65 @@ static watcher_result_t _add_entry_static(watcher_t *watcher, const void *pointe
             VECTOR_APPEND(watcher->delays, delay);
         }
 
-        GROW_OR_FAIL(debounces);
-        int16_t                 debounce_index = watcher->debounces.num;
-        watcher_debounce_data_t debounce_data  = {
-             .timestamp   = 0,
-             .delay_index = delay_index,
-             .triggered   = 0,
-        };
-        VECTOR_APPEND(watcher->debounces, debounce_data);
+        GROW_OR_FAIL(debouncers);
+        int16_t debouncer_index = watcher->debouncers.num;
 
-        watcher->entries.items[entry_index].debounce_index = debounce_index;
+        watcher_size_t debouncer_callback_index = 0;
+        result                                  = WATCHER_RESULT_OK;
+        if ((result = add_callback(watcher, debouncer_callback, &debouncer_callback_index)) != WATCHER_RESULT_OK) {
+            return result;
+        }
+
+        watcher_size_t debouncer_arg_index = 0;
+        if ((result = add_arg(watcher, &watcher->debouncers.items[debouncer_index], &debouncer_arg_index)) !=
+            WATCHER_RESULT_OK) {
+            return result;
+        }
+
+        watcher_debouncer_t debounce_data = {
+            .timestamp      = 0,
+            .delay_index    = delay_index,
+            .callback_index = pentry->callback_index,
+            .arg_index      = pentry->arg_index,
+            .triggered      = TRIGGER_STATE_INACTIVE,
+        };
+
+        // Fix the callback index
+        pentry->callback_index = debouncer_callback_index;
+        pentry->arg_index      = debouncer_arg_index;
+
+        VECTOR_APPEND(watcher->debouncers, debounce_data);
     }
 
     return entry_index;
+}
+
+
+static void debouncer_callback(void *old_value, const void *new_value, watcher_size_t size, void *user_ptr, void *arg) {
+    (void)old_value;
+    (void)new_value;
+    (void)size;
+    (void)user_ptr;
+
+    watcher_debouncer_t *pdebouncer = (watcher_debouncer_t *)arg;
+    // Debounce was triggered
+    pdebouncer->triggered = TRIGGER_STATE_RESET;
+}
+
+
+static uint8_t is_debounced(watcher_t *watcher, watcher_size_t entry_index) {
+    return watcher->callbacks.items[watcher->entries.items[entry_index].callback_index] == debouncer_callback;
+}
+
+
+static void trigger_debouncer_entry(watcher_t *watcher, watcher_size_t entry_index) {
+    watcher_entry_t     *pentry     = &watcher->entries.items[entry_index];
+    watcher_debouncer_t *pdebouncer = watcher->args.items[pentry->arg_index];
+    void                *arg        = watcher->args.items[pdebouncer->arg_index];
+
+    void *old_buffer = ENTRY_GET_OLD_BUFFER_POINTER(*pentry);
+
+    watcher->callbacks.items[pdebouncer->callback_index](old_buffer, pentry->watched, pentry->size, watcher->user_ptr,
+                                                         arg);
+    pdebouncer->triggered = TRIGGER_STATE_INACTIVE;
 }

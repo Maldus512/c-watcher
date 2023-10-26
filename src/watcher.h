@@ -12,7 +12,7 @@
 
 // The maximumum number of entries is (realistically) limited to use smaller data types and save RAM
 #ifndef C_WATCHER_MAX_ENTRIES
-#define C_WATCHER_MAX_ENTRIES (0x7FFF)
+#define C_WATCHER_MAX_ENTRIES (0xFFFF)
 #endif
 
 #define WATCHER_INIT_STD(Watcher, User_ptr) watcher_init(Watcher, User_ptr, realloc, free)
@@ -109,7 +109,6 @@ typedef struct __attribute__((packed)) {
 
     watcher_size_t callback_index;     // Index for the callback vector
     watcher_size_t arg_index;          // Index for the argument vector
-    watcher_size_t debounce_index;     // Index for the debounce vector
 } watcher_entry_t;
 
 
@@ -117,17 +116,18 @@ typedef struct __attribute__((packed)) {
     unsigned long  timestamp;
     watcher_size_t delay_index;
     watcher_size_t callback_index;
+    watcher_size_t arg_index;
     uint8_t        triggered;
-} watcher_debounce_data_t;
+} watcher_debouncer_t;
 
 
 // Watcher data
 typedef struct {
     VECTOR_DEFINE(watcher_entry_t, entries);
     VECTOR_DEFINE(unsigned long, delays);
-    VECTOR_DEFINE(watcher_debounce_data_t, debounces);
     VECTOR_DEFINE(watcher_callback_t, callbacks);
     VECTOR_DEFINE(void *, args);
+    VECTOR_DEFINE(watcher_debouncer_t, debouncers);
 
     void *user_ptr;
 
@@ -169,7 +169,7 @@ watcher_result_t watcher_init(watcher_t *watcher, void *user_ptr, void *(*fn_rea
 void watcher_init_static(watcher_t *watcher, watcher_entry_t *entries, watcher_size_t entries_capacity,
                          watcher_callback_t *callbacks, watcher_size_t callbacks_capacity, void **args,
                          watcher_size_t args_capacity, unsigned long *delays, watcher_size_t delays_capacity,
-                         watcher_debounce_data_t *debounces, watcher_size_t debounces_capacity, void *user_ptr);
+                         watcher_debouncer_t *debouncers, watcher_size_t debouncers_capacity, void *user_ptr);
 
 /**
  * @brief Frees the allocated memory for a buffer (if it was not statically allocated)
@@ -260,16 +260,6 @@ void watcher_trigger_entry(watcher_t *watcher, int16_t entry_index);
  * @param watcher
  */
 void watcher_trigger_all(watcher_t *watcher);
-
-
-/**
- * @brief Trigger an entry without invoking its callback
- *
- * @param watcher
- * @param entry_index
- */
-void watcher_trigger_entry_silently(watcher_t *watcher, int16_t entry_index);
-
 
 
 #endif
