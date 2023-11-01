@@ -47,6 +47,9 @@ def main():
     sources = Glob(f"test/*.c")
 
     tests = env.Program(TEST_SUITE, sources + c_watcher)
+    compileDB = env.CompilationDatabase('compile_commands.json')
+    env.Depends(tests, compileDB)
     PhonyTargets("test", f"./{TEST_SUITE}", tests, env)
+
 
 main()
