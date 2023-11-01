@@ -30,8 +30,7 @@
 
 #define VECTOR_GROW(name)                                                                                              \
     {                                                                                                                  \
-        typeof(name.items) new_entries =                                                                               \
-            C_WATCHER_CUSTOM_MEM_REALLOC(name.items, (name.capacity + 1) * sizeof(name.items[0]));                     \
+        void *new_entries = C_WATCHER_CUSTOM_MEM_REALLOC(name.items, (name.capacity + 1) * sizeof(name.items[0]));     \
         if (new_entries != NULL) {                                                                                     \
             name.items = new_entries;                                                                                  \
             name.capacity++;                                                                                           \
