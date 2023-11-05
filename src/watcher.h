@@ -15,6 +15,10 @@
 #define C_WATCHER_MAX_ENTRIES (0xFFFF)
 #endif
 
+#ifndef C_WATCHER_STRUCT_ATTRIBUTES
+#define C_WATCHER_STRUCT_ATTRIBUTES
+#endif
+
 #define WATCHER_INIT_STD(Watcher, User_ptr) watcher_init(Watcher, User_ptr, realloc, free)
 
 
@@ -102,7 +106,7 @@ typedef enum {
 
 
 // TODO: consider whether the vector index optimization is appropriate for the callback's argument
-typedef struct __attribute__((packed)) {
+typedef struct C_WATCHER_STRUCT_ATTRIBUTES {
     const void    *watched;        // Memory pointer
     void          *old_buffer;     // Old value buffer
     watcher_size_t size;           // Memory size
@@ -112,7 +116,7 @@ typedef struct __attribute__((packed)) {
 } watcher_entry_t;
 
 
-typedef struct __attribute__((packed)) {
+typedef struct C_WATCHER_STRUCT_ATTRIBUTES {
     unsigned long  timestamp;
     watcher_size_t delay_index;
     watcher_size_t callback_index;
