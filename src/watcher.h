@@ -138,6 +138,8 @@ typedef struct {
     // Allocator
     void *(*fn_realloc)(void *, size_t);
     void (*fn_free)(void *);
+
+    uint8_t changed;
 } watcher_t;
 
 
@@ -264,6 +266,9 @@ void watcher_trigger_entry(watcher_t *watcher, int16_t entry_index);
  * @param watcher
  */
 void watcher_trigger_all(watcher_t *watcher);
+
+
+void watcher_reset_all(watcher_t *watcher);
 
 
 #endif

@@ -81,6 +81,7 @@ watcher_result_t watcher_init(watcher_t *watcher, void *user_ptr, void *(*fn_rea
     VECTOR_INIT(watcher->debouncers);
 
     watcher->user_ptr = user_ptr;
+    watcher->changed  = 0;
 
     return WATCHER_RESULT_OK;
 }
@@ -110,6 +111,8 @@ void watcher_destroy(watcher_t *watcher) {
         watcher->fn_free(watcher->delays.items);
         watcher->fn_free(watcher->debouncers.items);
     }
+
+    watcher->changed = 1;
 }
 
 
@@ -153,36 +156,52 @@ watcher_size_t watcher_watch(watcher_t *watcher, unsigned long timestamp) {
     watcher_size_t count = 0;
     watcher_size_t i     = 0;
 
-    for (i = 0; i < watcher->entries.num; i++) {
-        watcher_entry_t *pentry     = &watcher->entries.items[i];
-        void            *old_buffer = ENTRY_GET_OLD_BUFFER_POINTER(*pentry);
+    do {
+        watcher->changed = 0;
 
-        if (memcmp(pentry->watched, old_buffer, pentry->size)) {
-            // Immediate logic
-            watcher_trigger_entry(watcher, i);
+        for (i = 0; i < watcher->entries.num; i++) {
+            watcher_entry_t *pentry     = &watcher->entries.items[i];
+            void            *old_buffer = ENTRY_GET_OLD_BUFFER_POINTER(*pentry);
 
-            // A debounced entry is considered triggered after the delay
-            if (!is_debounced(watcher, i)) {
-                count++;
+            if (memcmp(pentry->watched, old_buffer, pentry->size)) {
+                // Immediate logic
+                watcher_trigger_entry(watcher, i);
+
+                // A debounced entry is considered triggered after the delay
+                if (!is_debounced(watcher, i)) {
+                    count++;
+                }
+
+                if (watcher->changed) {
+                    break;
+                }
             }
         }
-    }
+    } while (watcher->changed);
 
-    for (i = 0; i < watcher->debouncers.num; i++) {
-        // Debounced logic
-        watcher_debouncer_t *pdebouncer = &watcher->debouncers.items[i];
+    do {
+        watcher->changed = 0;
 
-        if (pdebouncer->triggered == TRIGGER_STATE_RESET) {
-            pdebouncer->triggered = TRIGGER_STATE_ACTIVE;
-            pdebouncer->timestamp = timestamp;
+        for (i = 0; i < watcher->debouncers.num; i++) {
+            // Debounced logic
+            watcher_debouncer_t *pdebouncer = &watcher->debouncers.items[i];
+
+            if (pdebouncer->triggered == TRIGGER_STATE_RESET) {
+                pdebouncer->triggered = TRIGGER_STATE_ACTIVE;
+                pdebouncer->timestamp = timestamp;
+            }
+
+            if (pdebouncer->triggered == TRIGGER_STATE_ACTIVE &&
+                is_expired(pdebouncer->timestamp, timestamp, watcher->delays.items[pdebouncer->delay_index])) {
+                trigger_debouncer_entry(watcher, i);
+                count++;
+            }
+
+            if (watcher->changed) {
+                break;
+            }
         }
-
-        if (pdebouncer->triggered == TRIGGER_STATE_ACTIVE &&
-            is_expired(pdebouncer->timestamp, timestamp, watcher->delays.items[pdebouncer->delay_index])) {
-            trigger_debouncer_entry(watcher, i);
-            count++;
-        }
-    }
+    } while (watcher->changed);
 
     return count;
 }
@@ -208,6 +227,23 @@ void watcher_trigger_all(watcher_t *watcher) {
     for (i = 0; i < watcher->entries.num; i++) {
         watcher_trigger_entry(watcher, i);
     }
+}
+
+
+void watcher_reset_all(watcher_t *watcher) {
+    watcher_size_t i = 0;
+
+    for (i = 0; i < watcher->entries.num; i++) {
+        watcher_entry_t *entry      = &watcher->entries.items[i];
+        void            *old_buffer = ENTRY_GET_OLD_BUFFER_POINTER(*entry);
+        memcpy(old_buffer, entry->watched, entry->size);
+    }
+
+    for (i = 0; i < watcher->debouncers.num; i++) {
+        watcher_debouncer_t *pdebouncer = &watcher->debouncers.items[i];
+        pdebouncer->triggered = TRIGGER_STATE_INACTIVE;
+    }
+
 }
 
 
@@ -350,6 +386,8 @@ static watcher_result_t add_entry_static(watcher_t *watcher, const void *pointer
 
         VECTOR_APPEND(watcher->debouncers, debounce_data);
     }
+
+    watcher->changed = 1;
 
     return entry_index;
 }
