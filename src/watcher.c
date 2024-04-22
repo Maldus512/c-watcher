@@ -81,7 +81,6 @@ watcher_result_t watcher_init(watcher_t *watcher, void *user_ptr, void *(*fn_rea
     VECTOR_INIT(watcher->debouncers);
 
     watcher->user_ptr = user_ptr;
-    watcher->changed  = 0;
 
     return WATCHER_RESULT_OK;
 }
@@ -164,11 +163,12 @@ watcher_size_t watcher_watch(watcher_t *watcher, unsigned long timestamp) {
             void            *old_buffer = ENTRY_GET_OLD_BUFFER_POINTER(*pentry);
 
             if (memcmp(pentry->watched, old_buffer, pentry->size)) {
+                uint8_t is_entry_debounced = is_debounced(watcher, i);
                 // Immediate logic
                 watcher_trigger_entry(watcher, i);
 
                 // A debounced entry is considered triggered after the delay
-                if (!is_debounced(watcher, i)) {
+                if (!is_entry_debounced) {
                     count++;
                 }
 
@@ -225,7 +225,8 @@ void watcher_trigger_entry(watcher_t *watcher, int16_t entry_index) {
         if (entry_index >= watcher->entries.num) {
             return;
         }
-        entry = &watcher->entries.items[entry_index];
+        entry      = &watcher->entries.items[entry_index];
+        old_buffer = ENTRY_GET_OLD_BUFFER_POINTER(*entry);
     }
     memcpy(old_buffer, entry->watched, entry->size);
 }
