@@ -215,10 +215,18 @@ void watcher_trigger_entry(watcher_t *watcher, int16_t entry_index) {
     watcher_entry_t *entry      = &watcher->entries.items[entry_index];
     void            *old_buffer = ENTRY_GET_OLD_BUFFER_POINTER(*entry);
 
-    void *arg = watcher->args.items[entry->arg_index];
+    void *arg      = watcher->args.items[entry->arg_index];
     void *user_ptr = is_debounced(watcher, entry_index) ? watcher : watcher->user_ptr;
 
     watcher->callbacks.items[entry->callback_index](old_buffer, entry->watched, entry->size, user_ptr, arg);
+    // The callback modified the watcher list, either stop or update the entry to make sure we retain the correct
+    // pointers
+    if (watcher->changed) {
+        if (entry_index >= watcher->entries.num) {
+            return;
+        }
+        entry = &watcher->entries.items[entry_index];
+    }
     memcpy(old_buffer, entry->watched, entry->size);
 }
 
@@ -242,9 +250,8 @@ void watcher_reset_all(watcher_t *watcher) {
 
     for (i = 0; i < watcher->debouncers.num; i++) {
         watcher_debouncer_t *pdebouncer = &watcher->debouncers.items[i];
-        pdebouncer->triggered = TRIGGER_STATE_INACTIVE;
+        pdebouncer->triggered           = TRIGGER_STATE_INACTIVE;
     }
-
 }
 
 
@@ -368,7 +375,7 @@ static watcher_result_t add_entry_static(watcher_t *watcher, const void *pointer
         }
 
         watcher_size_t debouncer_arg_index = 0;
-        if ((result = add_arg(watcher, (void*)(uintptr_t)debouncer_index, &debouncer_arg_index)) !=
+        if ((result = add_arg(watcher, (void *)(uintptr_t)debouncer_index, &debouncer_arg_index)) !=
             WATCHER_RESULT_OK) {
             return result;
         }
@@ -399,7 +406,7 @@ static void debouncer_callback(void *old_value, const void *new_value, watcher_s
     (void)new_value;
     (void)size;
 
-    watcher_t *watcher = user_ptr;
+    watcher_t           *watcher    = user_ptr;
     watcher_debouncer_t *pdebouncer = &watcher->debouncers.items[(size_t)(uintptr_t)arg];
     // Debounce was triggered
     pdebouncer->triggered = TRIGGER_STATE_RESET;
@@ -412,9 +419,10 @@ static uint8_t is_debounced(watcher_t *watcher, watcher_size_t entry_index) {
 
 
 static void trigger_debouncer_entry(watcher_t *watcher, watcher_size_t entry_index) {
-    watcher_entry_t     *pentry     = &watcher->entries.items[entry_index];
-    watcher_debouncer_t *pdebouncer = &watcher->debouncers.items[(size_t)(uintptr_t)watcher->args.items[pentry->arg_index]];
-    void                *arg        = watcher->args.items[pdebouncer->arg_index];
+    watcher_entry_t     *pentry = &watcher->entries.items[entry_index];
+    watcher_debouncer_t *pdebouncer =
+        &watcher->debouncers.items[(size_t)(uintptr_t)watcher->args.items[pentry->arg_index]];
+    void *arg = watcher->args.items[pdebouncer->arg_index];
 
     void *old_buffer = ENTRY_GET_OLD_BUFFER_POINTER(*pentry);
 
