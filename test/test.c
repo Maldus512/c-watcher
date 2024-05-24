@@ -107,11 +107,36 @@ void watcher_delayed_test(void **state) {
 }
 
 
+void watcher_mixed_test(void **state) {
+    (void)state;
+    cbtest                  = 0;
+    uint16_t delayed_var1   = 0;
+    uint8_t  delayed_var2   = 0;
+    uint8_t  immediate_var1 = 0;
+
+    watcher_t watcher;
+    WATCHER_INIT_STD(&watcher, user_pointer);
+
+    assert_true(WATCHER_ADD_ENTRY_DELAYED(&watcher, &delayed_var1, callback, entries_arg, 3000) >= 0);
+    assert_true(WATCHER_ADD_ENTRY(&watcher, &immediate_var1, callback, entries_arg) >= 0);
+    assert_true(WATCHER_ADD_ENTRY_DELAYED(&watcher, &delayed_var2, callback, entries_arg, 3000) >= 0);
+    assert_true(WATCHER_ADD_ENTRY(&watcher, &immediate_var1, callback, entries_arg) >= 0);
+
+    delayed_var2++;
+    assert_false(watcher_watch(&watcher, 0));
+    assert_int_equal(0, cbtest);
+    assert_true(watcher_watch(&watcher, 4000));
+    assert_int_equal(1, cbtest);
+
+    watcher_destroy(&watcher);
+}
+
 
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(watcher_test),
         cmocka_unit_test(watcher_delayed_test),
+        cmocka_unit_test(watcher_mixed_test),
     };
 
     /* If setup and teardown functions are not
