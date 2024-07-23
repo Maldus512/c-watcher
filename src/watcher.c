@@ -23,6 +23,8 @@
         if (new_entries != NULL) {                                                                                     \
             name.items = new_entries;                                                                                  \
             name.capacity++;                                                                                           \
+        } else {                                                                                                       \
+            return WATCHER_RESULT_ALLOC_ERROR;                                                                         \
         }                                                                                                              \
     }
 
