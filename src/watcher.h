@@ -26,14 +26,14 @@
  * @brief Add a new entry (in the form of an array) to the watcher
  *
  * @param watcher
- * @param pointer pointer to observe
+ * @param slice slice to observe
  * @param num number of items
  * @param callback function to be called on memory change
  * @param arg additional argument to be passed to the function
  * @return int16_t entry index if successful, -1 on failure
  */
-#define WATCHER_ADD_ARRAY_ENTRY(watcher, ptr, num, cb, arg)                                                            \
-    watcher_add_entry(watcher, ptr, sizeof(*(ptr)) * (num), cb, ((void *)(arg)))
+#define WATCHER_ADD_SLICE_ENTRY(watcher, slice, num, cb, arg)                                                          \
+    watcher_add_entry(watcher, slice, sizeof(*(slice)) * (num), cb, ((void *)(arg)))
 
 /**
  * @brief Add a new entry to the watcher
@@ -45,6 +45,19 @@
  * @return int16_t entry index if successful, -1 on failure
  */
 #define WATCHER_ADD_ENTRY(watcher, ptr, cb, arg) watcher_add_entry(watcher, ptr, sizeof(*(ptr)), cb, ((void *)(arg)))
+
+/**
+ * @brief Add a new entry to the watcher
+ *
+ * @param watcher
+ * @param array to observe
+ * @param callback function to be called on memory change
+ * @param arg additional argument to be passed to the function
+ * @return int16_t entry index if successful, -1 on failure
+ */
+#define WATCHER_ADD_ARRAY_ENTRY(watcher, array, cb, arg)                                                               \
+    (void)&(array); /* Here so passing something that isn't an array results in a compiler error*/                     \
+    watcher_add_entry(watcher, array, sizeof(array), cb, ((void *)(arg)))
 
 /**
  * @brief Add a new entry (in the form of an array, with delayed reaction) to the watcher
