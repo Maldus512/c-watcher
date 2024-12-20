@@ -167,7 +167,7 @@ watcher_size_t watcher_watch(watcher_t *watcher, unsigned long timestamp) {
 
             if (memcmp(pentry->watched, old_buffer, pentry->size)) {
                 // Immediate logic
-                watcher_trigger_entry(watcher, i);
+                watcher_trigger_entry(watcher, (int16_t)i);
 
                 // A debounced entry is considered triggered after the delay
                 if (!is_entry_debounced) {
@@ -214,7 +214,7 @@ void watcher_trigger_entry(watcher_t *watcher, int16_t entry_index) {
     void            *old_buffer = ENTRY_GET_OLD_BUFFER_POINTER(*entry);
 
     void *arg      = watcher->args.items[entry->arg_index];
-    void *user_ptr = is_debounced(watcher, entry_index) ? watcher : watcher->user_ptr;
+    void *user_ptr = is_debounced(watcher, (watcher_size_t)entry_index) ? watcher : watcher->user_ptr;
 
     watcher->callbacks.items[entry->callback_index](old_buffer, entry->watched, entry->size, user_ptr, arg);
     // The callback modified the watcher list, either stop or update the entry to make sure we retain the correct
@@ -233,7 +233,7 @@ void watcher_trigger_entry(watcher_t *watcher, int16_t entry_index) {
 void watcher_trigger_all(watcher_t *watcher) {
     watcher_size_t i = 0;
     for (i = 0; i < watcher->entries.num; i++) {
-        watcher_trigger_entry(watcher, i);
+        watcher_trigger_entry(watcher, (int16_t)i);
     }
 }
 
@@ -328,15 +328,15 @@ static watcher_result_t add_entry_static(watcher_t *watcher, const void *pointer
     memcpy(old_buffer, pointer, size);
 
     GROW_OR_FAIL(entries);
-    int16_t entry_index = watcher->entries.num;
+    int16_t entry_index = (int16_t)watcher->entries.num;
     VECTOR_APPEND(watcher->entries, entry);
 
     if (delay > 0) {
         watcher_entry_t *pentry = &watcher->entries.items[entry_index];
 
         // Entry is already debounced
-        if (is_debounced(watcher, entry_index)) {
-            return entry_index;
+        if (is_debounced(watcher, (watcher_size_t)entry_index)) {
+            return (watcher_size_t)entry_index;
         }
 
         // Look for or add a new debouncer
@@ -347,7 +347,7 @@ static watcher_result_t add_entry_static(watcher_t *watcher, const void *pointer
         for (i = 0; i < watcher->delays.num; i++) {
             if (watcher->delays.items[i] == delay) {
                 delay_found = 1;
-                delay_index = i;
+                delay_index = (int16_t)i;
                 break;
             }
         }
@@ -360,12 +360,12 @@ static watcher_result_t add_entry_static(watcher_t *watcher, const void *pointer
                     return WATCHER_RESULT_STATIC_OVERFLOW;
                 }
             }
-            delay_index = watcher->delays.num;
+            delay_index = (int16_t)watcher->delays.num;
             VECTOR_APPEND(watcher->delays, delay);
         }
 
         GROW_OR_FAIL(debouncers);
-        int16_t debouncer_index = watcher->debouncers.num;
+        int16_t debouncer_index = (int16_t)watcher->debouncers.num;
 
         watcher_size_t debouncer_callback_index = 0;
         result                                  = WATCHER_RESULT_OK;
@@ -381,7 +381,7 @@ static watcher_result_t add_entry_static(watcher_t *watcher, const void *pointer
 
         watcher_debouncer_t debounce_data = {
             .timestamp      = 0,
-            .delay_index    = delay_index,
+            .delay_index    = (watcher_size_t)delay_index,
             .callback_index = pentry->callback_index,
             .arg_index      = pentry->arg_index,
             .triggered      = TRIGGER_STATE_INACTIVE,
@@ -396,7 +396,7 @@ static watcher_result_t add_entry_static(watcher_t *watcher, const void *pointer
 
     watcher->changed = 1;
 
-    return entry_index;
+    return (watcher_size_t)entry_index;
 }
 
 
