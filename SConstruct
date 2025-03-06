@@ -40,8 +40,9 @@ def main():
     env.Tool('compilation_db')
 
     c_watcher_env = env
+    c_watcher_suffix = ""
     (c_watcher, include) = SConscript(
-        "SConscript", exports=["c_watcher_env"])
+        "SConscript", exports=["c_watcher_env", "c_watcher_suffix"])
     env["CPPPATH"] += [include]
 
     sources = Glob(f"test/*.c")

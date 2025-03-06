@@ -65,6 +65,7 @@ static watcher_result_t add_entry_static(watcher_t *watcher, const void *pointer
 static void debouncer_callback(void *old_value, const void *new_value, watcher_size_t size, void *user_ptr, void *arg);
 static uint8_t is_debounced(watcher_t *watcher, watcher_size_t entry_index);
 static void    trigger_debouncer_entry(watcher_t *watcher, watcher_size_t entry_index, watcher_debouncer_t *pdebouncer);
+static void    trigger_entry(watcher_t *watcher, int16_t entry_index);
 
 
 watcher_result_t watcher_init(watcher_t *watcher, void *user_ptr, void *(*fn_realloc)(void *, size_t),
@@ -167,11 +168,12 @@ watcher_size_t watcher_watch(watcher_t *watcher, unsigned long timestamp) {
 
             if (memcmp(pentry->watched, old_buffer, pentry->size)) {
                 // Immediate logic
-                watcher_trigger_entry(watcher, (int16_t)i);
+                trigger_entry(watcher, (int16_t)i);
 
                 // A debounced entry is considered triggered after the delay
                 if (!is_entry_debounced) {
                     count++;
+                    memcpy(old_buffer, pentry->watched, pentry->size);
                 }
 
                 if (watcher->changed) {
@@ -206,26 +208,9 @@ watcher_size_t watcher_watch(watcher_t *watcher, unsigned long timestamp) {
 
 
 void watcher_trigger_entry(watcher_t *watcher, int16_t entry_index) {
-    // Invalid index
-    if (entry_index >= watcher->entries.num || entry_index < 0) {
-        return;
-    }
     watcher_entry_t *entry      = &watcher->entries.items[entry_index];
     void            *old_buffer = ENTRY_GET_OLD_BUFFER_POINTER(*entry);
-
-    void *arg      = watcher->args.items[entry->arg_index];
-    void *user_ptr = is_debounced(watcher, (watcher_size_t)entry_index) ? watcher : watcher->user_ptr;
-
-    watcher->callbacks.items[entry->callback_index](old_buffer, entry->watched, entry->size, user_ptr, arg);
-    // The callback modified the watcher list, either stop or update the entry to make sure we retain the correct
-    // pointers
-    if (watcher->changed) {
-        if (entry_index >= watcher->entries.num) {
-            return;
-        }
-        entry      = &watcher->entries.items[entry_index];
-        old_buffer = ENTRY_GET_OLD_BUFFER_POINTER(*entry);
-    }
+    trigger_entry(watcher, entry_index);
     memcpy(old_buffer, entry->watched, entry->size);
 }
 
@@ -408,7 +393,9 @@ static void debouncer_callback(void *old_value, const void *new_value, watcher_s
     watcher_t           *watcher    = user_ptr;
     watcher_debouncer_t *pdebouncer = &watcher->debouncers.items[(size_t)(uintptr_t)arg];
     // Debounce was triggered
-    pdebouncer->triggered = TRIGGER_STATE_RESET;
+    if (pdebouncer->triggered == TRIGGER_STATE_INACTIVE) {
+        pdebouncer->triggered = TRIGGER_STATE_RESET;
+    }
 }
 
 
@@ -426,4 +413,28 @@ static void trigger_debouncer_entry(watcher_t *watcher, watcher_size_t entry_ind
     watcher->callbacks.items[pdebouncer->callback_index](old_buffer, pentry->watched, pentry->size, watcher->user_ptr,
                                                          arg);
     pdebouncer->triggered = TRIGGER_STATE_INACTIVE;
+}
+
+
+static void trigger_entry(watcher_t *watcher, int16_t entry_index) {
+    // Invalid index
+    if (entry_index >= watcher->entries.num || entry_index < 0) {
+        return;
+    }
+    watcher_entry_t *entry      = &watcher->entries.items[entry_index];
+    void            *old_buffer = ENTRY_GET_OLD_BUFFER_POINTER(*entry);
+
+    void *arg      = watcher->args.items[entry->arg_index];
+    void *user_ptr = is_debounced(watcher, (watcher_size_t)entry_index) ? watcher : watcher->user_ptr;
+
+    watcher->callbacks.items[entry->callback_index](old_buffer, entry->watched, entry->size, user_ptr, arg);
+    // The callback modified the watcher list, either stop or update the entry to make sure we retain the correct
+    // pointers
+    if (watcher->changed) {
+        if (entry_index >= watcher->entries.num) {
+            return;
+        }
+        entry      = &watcher->entries.items[entry_index];
+        old_buffer = ENTRY_GET_OLD_BUFFER_POINTER(*entry);
+    }
 }
