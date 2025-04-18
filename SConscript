@@ -9,11 +9,11 @@ Import("c_watcher_env")
 
 sources = Glob("./src/*.c")
 
-Import('c_watcher_suffix')
-if c_watcher_suffix:
+try:
+    Import('c_watcher_suffix')
     objects = [c_watcher_env.Object(
         f"{rchop(x.get_abspath(), '.c')}-{c_watcher_suffix}", x) for x in sources]
-else:
+except:
     objects = [c_watcher_env.Object(x) for x in sources]
 
 path = Dir('.').srcnode().abspath
